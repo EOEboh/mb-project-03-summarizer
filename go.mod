@@ -1,4 +1,4 @@
-module github.com/EOEboh/mb-bootcamp-scaffold
+module github.com/EOEboh/mb-project-03-summarizer
 
 go 1.22
 
