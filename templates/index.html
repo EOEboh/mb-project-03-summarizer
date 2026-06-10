@@ -1,17 +1,481 @@
+{{/*
+  index.html contains two named Go templates:
+    "index"  — full HTML page, rendered on GET /
+    "result" — HTML fragment, returned to HTMX on POST /summarize
+
+  Keeping both in one file means they share the same CSS custom properties
+  and visual language without needing a separate stylesheet for the fragment.
+
+  Go template invocation:
+    tmpl.ExecuteTemplate(w, "index", nil)     ← full page
+    tmpl.ExecuteTemplate(w, "result", data)   ← HTMX fragment
+*/}}
+
+{{define "index"}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bootcamp Scaffold</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <!-- HTMX: progressive enhancement for server interactions -->
-    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Summariser — Project 03</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+
+  <!-- HTMX — progressive enhancement: form submits via HTMX POST,
+       response HTML is swapped into #result. No custom JS needed
+       for the core submit-and-display flow. -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+
+  <style>
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      width: 30px; height: 30px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: grid; place-items: center;
+      font-size: 14px; color: #000; font-weight: 700;
+    }
+
+    header h1 { font-size: 0.95rem; font-weight: 600; }
+
+    .model-badge {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 3px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--accent);
+    }
+
+    /* ── Main content ────────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }
+
+    /* ── Input card ──────────────────────────────────────────────────── */
+    .input-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    #word-count {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    textarea#text-input {
+      width: 100%;
+      min-height: 220px;
+      max-height: 420px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 0.92rem;
+      line-height: 1.7;
+      padding: 18px;
+      resize: vertical;
+      outline: none;
+    }
+
+    textarea#text-input::placeholder { color: var(--text-muted); }
+
+    /* ── Format selector ─────────────────────────────────────────────── */
+    .format-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-top: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .format-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* Radio inputs hidden; labels styled as pill buttons */
+    .format-pills input[type="radio"] { display: none; }
+
+    .format-pills label {
+      display: inline-block;
+      padding: 5px 14px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      user-select: none;
+    }
+
+    .format-pills input[type="radio"]:checked + label {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .format-pills label:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── Submit button ───────────────────────────────────────────────── */
+    .submit-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    button[type="submit"] {
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      color: #000;
+      font-family: var(--font-sans);
+      font-size: 0.88rem;
+      font-weight: 600;
+      padding: 9px 22px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    button[type="submit"]:hover  { opacity: 0.85; }
+    button[type="submit"]:active { transform: scale(0.97); }
+
+    /* ── HTMX loading indicator ──────────────────────────────────────────
+       htmx-indicator class makes this hidden by default.
+       HTMX adds htmx-request to this element while the POST is in flight,
+       which triggers the CSS transition to opacity: 1.
+    ────────────────────────────────────────────────────────────────────── */
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 200ms ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .htmx-indicator.htmx-request,
+    .htmx-request .htmx-indicator { opacity: 1; }
+
+    .spinner-ring {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Result area ─────────────────────────────────────────────────── */
+    #result { margin-top: 32px; }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+      gap: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .empty-state .icon { font-size: 2.2rem; opacity: 0.4; }
+    .empty-state p { font-size: 0.88rem; max-width: 280px; line-height: 1.5; }
+
+    /* ── Result cards (rendered by the "result" template below) ──────── */
+    .summary-card {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeUp 0.25s ease;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .summary-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-tag {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+    }
+
+    .section-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .section-body {
+      padding: 16px;
+    }
+
+    /* Prose styles for goldmark-rendered HTML inside section-body */
+    .section-body p {
+      font-size: 0.92rem;
+      color: var(--text);
+      line-height: 1.72;
+      margin-bottom: 12px;
+    }
+
+    .section-body p:last-child { margin-bottom: 0; }
+
+    .section-body ul, .section-body ol {
+      padding-left: 20px;
+      margin: 0;
+    }
+
+    .section-body li {
+      font-size: 0.92rem;
+      color: var(--text);
+      line-height: 1.72;
+      margin-bottom: 6px;
+    }
+
+    .section-body li:last-child { margin-bottom: 0; }
+
+    /* One-liner gets a larger, prominent style */
+    .oneliner-section .section-body p {
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    /* Error state */
+    .error-box {
+      background: #2a1a1a;
+      border: 1px solid #5a2a2a;
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      color: #f87171;
+      font-size: 0.88rem;
+    }
+  </style>
 </head>
 <body>
-    <main>
-        <h1>Bootcamp Scaffold</h1>
-        <p>Replace this template with your own project UI</p>
-    </main>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">◈</div>
+    <h1>Smart Summariser</h1>
+    <span class="model-badge">llama3.2:3b · ollama</span>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main>
+
+    <!--
+      HTMX form attributes explained:
+        hx-post="/summarize"   — POST to this endpoint on submit
+        hx-target="#result"    — swap the response into this element
+        hx-swap="innerHTML"    — replace the inner HTML of #result
+        hx-indicator="#spinner"— show #spinner while the request is in flight
+
+      The browser sends a standard multipart/form-data POST.
+      Go reads it with r.FormValue("text") and r.FormValue("format").
+      Go returns an HTML fragment. HTMX injects it into #result.
+      No JavaScript needed for the core flow.
+    -->
+    <form
+      id="summarise-form"
+      hx-post="/summarize"
+      hx-target="#result"
+      hx-swap="innerHTML"
+      hx-indicator="#spinner"
+    >
+
+      <div class="input-card">
+        <div class="card-header">
+          <span class="card-label">Text to Summarise</span>
+          <span id="word-count">0 words</span>
+        </div>
+
+        <textarea
+          id="text-input"
+          name="text"
+          placeholder="Paste an article, meeting notes, documentation, or any text…"
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+
+        <div class="format-row">
+          <div class="format-pills">
+            <!-- Format selection — radio inputs styled as pills.
+                 Default "All Formats" selected. -->
+            <input type="radio" name="format" id="fmt-all"      value="all"      checked>
+            <label for="fmt-all">All Formats</label>
+
+            <input type="radio" name="format" id="fmt-oneliner" value="oneliner">
+            <label for="fmt-oneliner">One-Liner</label>
+
+            <input type="radio" name="format" id="fmt-bullets"  value="bullets">
+            <label for="fmt-bullets">Key Points</label>
+
+            <input type="radio" name="format" id="fmt-full"     value="full">
+            <label for="fmt-full">Full Summary</label>
+          </div>
+
+          <div class="submit-row">
+            <div id="spinner" class="htmx-indicator">
+              <div class="spinner-ring"></div>
+              <span>Summarising…</span>
+            </div>
+            <button type="submit">Summarise</button>
+          </div>
+        </div>
+      </div>
+
+    </form>
+
+    <!-- HTMX swaps the "result" template fragment into this div -->
+    <div id="result">
+      <div class="empty-state">
+        <span class="icon">◈</span>
+        <p>Paste any text above and click Summarise.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // Word counter — updates as the user types.
+    // This is the only JavaScript needed; HTMX handles the form submission.
+    const textInput = document.getElementById('text-input');
+    const wordCount = document.getElementById('word-count');
+
+    textInput.addEventListener('input', () => {
+      const words = textInput.value.trim().split(/\s+/).filter(Boolean).length;
+      wordCount.textContent = `${words} word${words !== 1 ? 's' : ''}`;
+    });
+  </script>
+
 </body>
 </html>
+{{end}}
+
+
+{{/*
+  "result" template — HTML fragment returned to HTMX on POST /summarize.
+
+  This template is rendered server-side by Go and returned as a text/html
+  response. HTMX receives it and swaps it into <div id="result">.
+
+  The CSS classes used here (.summary-card, .summary-section, etc.) are
+  defined in the "index" template above — both templates share the same
+  stylesheet because they live in the same file.
+*/}}
+
+{{define "result"}}
+{{if .Error}}
+  <div class="error-box">⚠ {{.Error}}</div>
+{{else}}
+  <div class="summary-card">
+
+    {{if .OneLiner}}
+    <div class="summary-section oneliner-section">
+      <div class="section-header">
+        <span class="section-tag">One-Liner</span>
+        {{if .WordCount}}<span class="section-meta">from {{.WordCount}} words</span>{{end}}
+      </div>
+      <div class="section-body">
+        {{.OneLiner}}
+      </div>
+    </div>
+    {{end}}
+
+    {{if .Bullets}}
+    <div class="summary-section bullets-section">
+      <div class="section-header">
+        <span class="section-tag">Key Points</span>
+      </div>
+      <div class="section-body">
+        {{.Bullets}}
+      </div>
+    </div>
+    {{end}}
+
+    {{if .FullSummary}}
+    <div class="summary-section full-section">
+      <div class="section-header">
+        <span class="section-tag">Full Summary</span>
+      </div>
+      <div class="section-body">
+        {{.FullSummary}}
+      </div>
+    </div>
+    {{end}}
+
+  </div>
+{{end}}
+{{end}}
